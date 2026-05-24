@@ -1,82 +1,140 @@
 # OpenClaw Backup → Cloudflare R2 (via restic)
 
-Backup **completo, criptografado e off-site** da sua instalação do [OpenClaw](https://openclaw.ai), enviado pro Cloudflare R2 usando [restic](https://restic.net).
+> **Never lose your OpenClaw agents and config again.**
 
-Faz backup de **tudo** o que importa — config, credenciais, agentes, workspace e tarefas cron — gerando o `.tar.gz` nativo do OpenClaw (`openclaw backup create --verify`) e mandando pro R2 com deduplicação e criptografia client-side. Se sua máquina pifar, você restaura tudo num PC novo baixando do R2.
+A complete, encrypted, off-site backup for your [OpenClaw](https://openclaw.ai) setup — pushed to Cloudflare R2 with [restic](https://restic.net). Set it once, and a daily job keeps a versioned, encrypted copy of **everything** in the cloud. If your machine dies, an update breaks your config, or you just want to move to a new PC, you restore the whole thing in minutes.
 
-## Por que isso existe
+---
 
-Mexer na config do OpenClaw é fácil de quebrar (um `doctor --fix` infeliz pode apagar agentes). Com um backup diário automático no R2, você recupera o estado anterior em minutos em vez de remontar tudo na mão.
+## Why this exists
 
-## O que vai pro backup
+OpenClaw is powerful, but its config is easy to break. One unlucky `openclaw doctor --fix` can wipe your agents and corrupt `openclaw.json` — and suddenly you're rebuilding credentials, agents, routing rules and channel bindings by hand. That's hours of work to get back to where you were.
 
-| Item | Incluído |
-|------|----------|
-| `openclaw.json` (config) | ✅ |
-| Credenciais / auth profiles | ✅ |
-| Agentes e workspaces | ✅ |
-| Tarefas cron | ✅ |
-| Cache e logs | ❌ (excluídos pra reduzir tamanho) |
+This project was born from exactly that pain. The fix is simple: **automated, complete, off-site backups** that you can restore from in minutes — on any machine.
 
-Retenção automática: **7 diários + 4 semanais + 6 mensais**.
+OpenClaw already keeps a local `.bak` of `openclaw.json`, but that only covers the config file. It does **not** cover your credentials, agents, workspace or cron jobs — and it lives on the same disk that might fail. This tool covers all of it, encrypted and off-site.
 
-## Requisitos
+| | OpenClaw's built-in `.bak` | **This project** |
+|---|:---:|:---:|
+| `openclaw.json` config | ✅ | ✅ |
+| Credentials / auth profiles | ❌ | ✅ |
+| Agents & workspaces | ❌ | ✅ |
+| Cron / scheduled tasks | ❌ | ✅ |
+| Off-site (survives disk failure) | ❌ | ✅ |
+| Encrypted | ❌ | ✅ |
+| Automatic daily + retention | ❌ | ✅ |
+| Restore on a brand-new PC | ❌ | ✅ |
+
+---
+
+## When it saves you
+
+- 💥 **A config change broke everything** → restore yesterday's working state in minutes.
+- 🖥️ **Your PC died / you got a new one** → run the portable restore on the new machine, pull from R2, done.
+- 🔄 **You're migrating setups** → carry the whole OpenClaw state across machines.
+- 😌 **Peace of mind** → a fresh encrypted snapshot lands in the cloud every day, automatically.
+
+---
+
+## How it works
+
+```
+openclaw backup create --verify   →   <date>-openclaw-backup.tar.gz
+                                            │
+                                   restic backup (dedupe + client-side encryption)
+                                            │
+                                            ▼
+                                   Cloudflare R2  (only sees encrypted blobs)
+                                            │
+                                   restic forget --prune  (retention)
+```
+
+1. Generates OpenClaw's **native verified backup** (`openclaw backup create --verify`) — config, credentials, agents, workspace, cron.
+2. **restic** encrypts and deduplicates it **on your machine**, then uploads to R2. The cloud never sees plaintext.
+3. Applies **retention**: keeps 7 daily + 4 weekly + 6 monthly snapshots automatically.
+
+### Why restic + R2?
+
+- **End-to-end encryption** — data is encrypted *before* it leaves your machine. R2 only stores ciphertext.
+- **Deduplication** — only changed chunks are uploaded, so daily backups are tiny and fast.
+- **Cheap & off-site** — Cloudflare R2 has a generous free tier and **no egress fees**, so restores cost nothing.
+- **Portable** — restic is a single binary; restore from any computer.
+
+---
+
+## Requirements
 
 - Windows + PowerShell
-- [OpenClaw](https://openclaw.ai) instalado
-- [restic](https://restic.net/#installation) (no PATH ou em `.\restic\restic.exe`)
-- Um bucket no [Cloudflare R2](https://developers.cloudflare.com/r2/) + token de API S3
+- [OpenClaw](https://openclaw.ai) installed
+- [restic](https://restic.net/#installation) (on your PATH or in `.\restic\restic.exe`)
+- A [Cloudflare R2](https://developers.cloudflare.com/r2/) bucket + an S3 API token
 
-## Configuração
+---
 
-1. Copie `.env.example` para `.env` e preencha:
-   ```
-   RESTIC_REPOSITORY=https://<accountid>.r2.cloudflarestorage.com/<seu-bucket>
+## Setup
+
+1. **Copy `.env.example` to `.env`** and fill it in:
+   ```ini
+   RESTIC_REPOSITORY=https://<accountid>.r2.cloudflarestorage.com/<your-bucket>
    AWS_ACCESS_KEY_ID=...
    AWS_SECRET_ACCESS_KEY=...
    ```
-2. Crie o arquivo `.restic-pass` com uma senha forte (criptografa seus backups — **guarde em lugar seguro, sem ela não há restore!**).
-3. Inicialize o repositório restic uma vez:
+2. **Create `.restic-pass`** with a strong password. This encrypts your backups — **store it somewhere safe; without it there is no restore.**
+3. **Initialize the restic repo once:**
    ```powershell
    restic init
    ```
 
-## Uso
+---
 
-**Backup manual:**
+## Usage
+
+**Back up now:**
 ```powershell
 .\backup.ps1
 ```
-Ou dê dois cliques em `backup-agora.bat`.
+…or just double-click `backup-agora.bat`.
 
-**Testar restore (sem tocar na instalação atual):**
+**Test a restore (without touching your live install):**
 ```powershell
 .\test-restore.ps1
 ```
+Downloads the latest backup, extracts it, and validates it with `openclaw backup verify`. The restored folder is left intact for you to inspect.
 
-**Restore de verdade (em qualquer PC):**
-Copie a pasta `portable\` (com `restic\restic.exe`, `.env` e `.restic-pass`) pro PC novo e rode:
+**Real restore (on any PC):**
+Copy the `portable\` folder (with `restic\restic.exe`, `.env`, and `.restic-pass`) to the new machine and run:
 ```powershell
 .\portable\restore-portable.ps1
 ```
-Ele baixa o backup mais recente do R2, e **preserva** a `.openclaw` atual como `.openclaw.backup-<data>` antes de sobrescrever.
+It pulls the latest backup from R2 and installs it to `%USERPROFILE%\.openclaw`, **preserving** your current `.openclaw` as `.openclaw.backup-<date>` before overwriting.
 
-## Backup automático (Tarefa Agendada do Windows)
+---
+
+## Automatic daily backup (Windows Task Scheduler)
 
 ```powershell
-$action  = New-ScheduledTaskAction -Execute "powershell.exe" -Argument '-ExecutionPolicy Bypass -NoProfile -File "C:\caminho\para\backup.ps1"'
-$trigger = New-ScheduledTaskTrigger -Daily -At 12:00
+$action   = New-ScheduledTaskAction -Execute "powershell.exe" -Argument '-ExecutionPolicy Bypass -NoProfile -File "C:\path\to\backup.ps1"'
+$trigger  = New-ScheduledTaskTrigger -Daily -At 12:00
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 1)
-Register-ScheduledTask -TaskName "OpenClaw Backup" -Action $action -Trigger $trigger -Settings $settings -Description "Backup diario do OpenClaw para R2"
+Register-ScheduledTask -TaskName "OpenClaw Backup" -Action $action -Trigger $trigger -Settings $settings -Description "Daily OpenClaw backup to R2"
 ```
-`-StartWhenAvailable` faz o backup rodar assim que o PC ligar, caso estivesse desligado no horário.
+`-StartWhenAvailable` runs the backup as soon as the PC boots if it was off at the scheduled time, so you never miss a day.
 
-## Segurança
+---
 
-- `.env` e `.restic-pass` **nunca** vão pro git (protegidos no `.gitignore`).
-- Os backups são criptografados pelo restic **antes** de subir — o R2 só vê dados cifrados.
-- As pastas de teste de restore contêm dados sensíveis e também estão no `.gitignore`.
+## Security
 
-## Licença
+- `.env` and `.restic-pass` are **never** committed (blocked by `.gitignore`). The repo only ships `.env.example` templates with no real values.
+- Backups are encrypted by restic **before** upload — R2 only ever stores ciphertext.
+- Restore-test folders contain restored sensitive data and are also git-ignored.
+- **Keep your `.restic-pass` safe and backed up separately.** It is the only key to your encrypted backups.
 
-MIT.
+---
+
+## Contributing
+
+Issues and PRs welcome! This started as a personal fix and is shared so the OpenClaw community doesn't have to relive the "I lost all my agents" nightmare. If you adapt it for Linux/macOS or other S3-compatible storage (Backblaze B2, AWS S3, MinIO), please open a PR.
+
+## License
+
+MIT — use it, fork it, improve it.
