@@ -20,6 +20,3 @@ restore-test/
 restore-test-*/
 **/tmp-restore/
 OpenClaw-restore/
-
-# === Config local do Claude Code (nao faz parte da skill) ===
-.claude/
