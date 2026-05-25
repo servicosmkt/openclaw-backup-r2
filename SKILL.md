@@ -42,13 +42,15 @@ This runs `openclaw backup create --verify`, uploads via restic to R2, prunes ol
 ```
 Downloads the latest snapshot, extracts it, and validates with `openclaw backup verify`. Does **not** touch the live `.openclaw`.
 
-## Restoring (any PC)
+## Restoring (any PC) — ⚠️ destructive
 
 Copy the `portable/` folder (with `restic/restic.exe`, `.env`, `.restic-pass`) to the target machine and run:
 ```powershell
 .\portable\restore-portable.ps1
 ```
-It stops the gateway, pulls the latest backup from R2, and installs to `%USERPROFILE%\.openclaw`, **preserving** the current `.openclaw` as `.openclaw.backup-<date>` first.
+It stops the gateway, pulls the latest backup from R2, and installs to `%USERPROFILE%\.openclaw`.
+
+> ⚠️ **This OVERWRITES the live `.openclaw`.** Anything created after the last backup is lost. The script requires the user to type `RESTAURAR` to confirm and moves the current folder to `.openclaw.backup-<date>` first (this local backup can fail if files are locked, in which case it overwrites in place). **Always have the user run `test-restore.ps1` first** to inspect the backup non-destructively, and only run the real restore when they accept replacing the active install. `$env:OPENCLAW_RESTORE_YES = 1` skips the prompt for automation — never set it on the user's behalf without explicit consent.
 
 ## Automating daily backups (Windows)
 
@@ -56,6 +58,7 @@ Register a Task Scheduler job that runs `backup.ps1` daily with `-StartWhenAvail
 
 ## Safety notes
 
-- Always confirm the user has saved their `.restic-pass` somewhere safe before relying on backups.
+- Always confirm the user has saved their `.restic-pass` somewhere safe before relying on backups. It is the only key — losing it makes every backup unrecoverable.
 - When helping configure, never echo secret values; have the user paste them into `.env`/`.restic-pass` themselves.
-- The restore preserves the existing `.openclaw` as a timestamped backup, so a restore is reversible.
+- This uploads OpenClaw secrets (credentials/auth profiles) to a third-party bucket. Encryption is client-side, but its strength depends entirely on the password. Make sure the user uses a strong passphrase, keeps the R2 bucket private, and never shares the `portable/` folder (it bundles both the R2 credentials and the decryption key).
+- The restore normally preserves the existing `.openclaw` as a timestamped backup (so it is reversible) — but that safety copy can fail if files are locked. Recommend `test-restore.ps1` before any real restore.

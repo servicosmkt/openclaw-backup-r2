@@ -39,6 +39,34 @@ if ($env:RESTIC_REPOSITORY -and -not ($env:RESTIC_REPOSITORY -match '^s3:')) {
 
 $Dest = Join-Path $env:USERPROFILE '.openclaw'
 
+# ============================================================
+# AVISO: operacao DESTRUTIVA.
+# Este script SUBSTITUI o seu .openclaw ATIVO pelo conteudo do
+# backup mais recente do R2. Qualquer alteracao feita DEPOIS do
+# ultimo backup (agentes, credenciais, config) sera perdida.
+# A pasta atual e movida para .openclaw.backup-<data> antes de
+# sobrescrever, mas se essa pasta estiver com arquivos travados
+# (gateway aberto, por ex.) o backup local pode falhar e a
+# sobrescrita acontece "in place".
+# ============================================================
+if (Test-Path $Dest) {
+  Write-Host ""
+  Write-Host "ATENCAO: ja existe um OpenClaw instalado em:" -ForegroundColor Yellow
+  Write-Host "  $Dest" -ForegroundColor Yellow
+  Write-Host "Continuar VAI SUBSTITUIR essa instalacao pelo backup do R2." -ForegroundColor Red
+  Write-Host "Sua pasta atual sera preservada como .openclaw.backup-<data> (se nao estiver travada)." -ForegroundColor Yellow
+  Write-Host ""
+  if (-not $env:OPENCLAW_RESTORE_YES) {
+    $answer = Read-Host "Digite EXATAMENTE 'RESTAURAR' para confirmar (qualquer outra coisa cancela)"
+    if ($answer -ne 'RESTAURAR') {
+      Write-Host "Cancelado pelo usuario. Nada foi alterado." -ForegroundColor Cyan
+      exit 1
+    }
+  } else {
+    Write-Host "OPENCLAW_RESTORE_YES definido: pulando confirmacao (modo nao-interativo)." -ForegroundColor Yellow
+  }
+}
+
 # para o gateway se o openclaw estiver instalado (reduz lock)
 if (Get-Command openclaw -ErrorAction SilentlyContinue) {
   try { & openclaw gateway stop | Out-Null } catch {}

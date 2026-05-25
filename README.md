@@ -101,12 +101,15 @@ openclaw backup create --verify   →   <date>-openclaw-backup.tar.gz
 ```
 Downloads the latest backup, extracts it, and validates it with `openclaw backup verify`. The restored folder is left intact for you to inspect.
 
-**Real restore (on any PC):**
+**Real restore (on any PC) — ⚠️ destructive:**
 Copy the `portable\` folder (with `restic\restic.exe`, `.env`, and `.restic-pass`) to the new machine and run:
 ```powershell
 .\portable\restore-portable.ps1
 ```
-It pulls the latest backup from R2 and installs it to `%USERPROFILE%\.openclaw`, **preserving** your current `.openclaw` as `.openclaw.backup-<date>` before overwriting.
+
+> ⚠️ **This OVERWRITES your live `.openclaw`.** The restore replaces `%USERPROFILE%\.openclaw` with the latest backup from R2. **Anything created after the last backup — new agents, credentials, config changes — is lost.** The script asks you to type `RESTAURAR` to confirm, and moves your current folder to `.openclaw.backup-<date>` first. But that local backup can fail if files are locked (e.g. the gateway is running), in which case it overwrites in place. **Run `test-restore.ps1` first** to inspect the backup non-destructively, and only run the real restore when you're sure you want to replace the active install.
+>
+> Non-interactive automation can skip the prompt by setting `$env:OPENCLAW_RESTORE_YES = 1` — do this only when you fully understand it overwrites without asking.
 
 ---
 
@@ -122,12 +125,16 @@ Register-ScheduledTask -TaskName "OpenClaw Backup" -Action $action -Trigger $tri
 
 ---
 
-## Security
+## Security & privacy
 
-- `.env` and `.restic-pass` are **never** committed (blocked by `.gitignore`). The repo only ships `.env.example` templates with no real values.
-- Backups are encrypted by restic **before** upload — R2 only ever stores ciphertext.
-- Restore-test folders contain restored sensitive data and are also git-ignored.
-- **Keep your `.restic-pass` safe and backed up separately.** It is the only key to your encrypted backups.
+**What leaves your machine:** This tool uploads a complete copy of your OpenClaw install — **including credentials and auth profiles** — to a third-party cloud (Cloudflare R2). Restic encrypts everything *client-side* before upload, so R2 only ever stores ciphertext. But you should understand the trade-offs before relying on it:
+
+- **Your password is the entire security boundary.** Anyone who obtains both the R2 repository *and* your `.restic-pass` can decrypt every secret you ever backed up. A weak password defeats the encryption. Use a long, random passphrase.
+- **`.restic-pass` is the only key.** Lose it and your backups are permanently unrecoverable. Back it up **separately** from the repo (a password manager, not the same bucket).
+- **Don't share the `portable\` folder loosely.** It bundles `.env` (R2 credentials) and `.restic-pass` (decryption key) together — handing it to someone gives them full access to your backed-up secrets. Treat it like a master key.
+- **Retention keeps history.** Old snapshots (7 daily + 4 weekly + 6 monthly) persist in R2, so credentials you rotated or deleted may still live in older backups until they age out.
+- `.env`, `.restic-pass`, and restore-test folders are **never** committed (blocked by `.gitignore`). The repo only ships `.env.example` with no real values.
+- Make sure your R2 bucket is **private** (no public access) and the S3 API token is scoped to that single bucket.
 
 ---
 
